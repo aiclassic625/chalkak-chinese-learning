@@ -1,29 +1,28 @@
+"""중국어 원문 → 학습자료 (병음 · 해석 · HSK 어휘 분석)
+
+DeepSeek API 를 사용합니다. 키는 secrets/환경변수에서 읽습니다.
+"""
+import json
+import os
+import re
+
 from openai import OpenAI
 
-# DeepSeek 클라이언트 초기화 (본인의 API 키로 교체)
-client = OpenAI(
-    api_key="sk-9d2da94df409489c8cfd3673b509665b",
-    base_url="https://api.deepseek.com/v1"
+MODEL = "deepseek-v4-pro"          # 검증 완료 (deepseek-flash 도 가능)
+EFFORT = "none"                    # 사고 토큰 0 → 6배 빠르고 저렴
+
+SYSTEM = (
+    "당신은 중국어 교육 전문가입니다. "
+    "학습자가 원문의 맥락을 끊지 않고 바로 이해할 수 있게, "
+    "깔끔하고 읽기 쉬운 학습자료를 만듭니다."
 )
 
-def generate_study_material(chinese_text):
-    """
-    중국어 텍스트를 학습 자료로 변환합니다.
-    - 번체자 → 간체 변환 포함
-    - HSK 4급 이상 단어만 한 글자씩 뜻 풀이
-    - 부수/획수 제외
-    """
-    try:
-        if not chinese_text or len(chinese_text.strip()) < 5:
-            return "텍스트가 너무 짧습니다. (최소 5자 이상 필요)"
-
-        prompt = f"""
-중국어 텍스트를 학습 자료로 변환해주세요.
+PROMPT = """중국어 텍스트를 학습 자료로 변환해주세요.
 
 텍스트:
-{chinese_text}
+{text}
 
-출력 형식 (반드시 아래와 같이 정확히 작성해주세요):
+출력 형식 (반드시 아래 형식을 그대로 지켜주세요):
 
 ---
 
@@ -50,23 +49,68 @@ def generate_study_material(chinese_text):
 
 ---
 
-- **간체 변환 항목은 원문이 번체(正體字/繁體字)일 때만 추가하세요. 원문이 간체(简体字)면 이 항목을 완전히 생략하세요.**
+규칙:
+- 간체 변환 항목은 원문이 번체(正體字/繁體字)일 때만 넣고, 간체(简体字)면 완전히 생략하세요.
 - HSK 4급 이상 단어만 추출하세요.
-- **부수, 횟수(획수)는 절대 표시하지 마세요.**
+- 부수와 획수는 절대 표시하지 마세요.
 - 각 단어의 한 글자씩 뜻 풀이만 제공하세요.
 - 모든 문장에 대해 위 형식을 반복하세요.
 - 표는 사용하지 마세요.
 """
 
-        response = client.chat.completions.create(
-            model="deepseek-v4-flash",
-            messages=[
-                {"role": "system", "content": "당신은 중국어 교육 전문가입니다. 항상 깔끔하고 읽기 쉽게 가르쳐주세요."},
-                {"role": "user", "content": prompt}
-            ],
-            reasoning_effort="low"  # 속도 향상
-        )
-        return response.choices[0].message.content
 
+def _api_key():
+    try:
+        import streamlit as st
+        if "DEEPSEEK_KEY" in st.secrets:
+            return st.secrets["DEEPSEEK_KEY"]
+    except Exception:
+        pass
+    for name in ("DEEPSEEK_KEY", "DEEPSEEK_API_KEY"):
+        v = os.environ.get(name)
+        if v:
+            return v
+    return None
+
+
+def _client():
+    key = _api_key()
+    if not key:
+        return None
+    return OpenAI(api_key=key, base_url="https://api.deepseek.com/v1")
+
+
+def generate_study_material(chinese_text):
+    """중국어 텍스트 → 마크다운 학습자료 (실패 시 '오류: ...')"""
+    if not chinese_text or len(chinese_text.strip()) < 2:
+        return "오류: 텍스트가 너무 짧습니다."
+
+    client = _client()
+    if client is None:
+        return "오류: DEEPSEEK_KEY 가 설정되지 않았습니다."
+
+    try:
+        resp = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM},
+                {"role": "user", "content": PROMPT.format(text=chinese_text)},
+            ],
+            temperature=1.0,
+            reasoning_effort=EFFORT,
+            max_tokens=4096,
+            extra_body={"reasoning_effort": EFFORT},
+        )
+        out = (resp.choices[0].message.content or "").strip()
+        if not out:
+            return "오류: 빈 응답을 받았습니다. 다시 시도해주세요."
+        return out
     except Exception as e:
-        return f"오류 발생: {e}"
+        msg = str(e)
+        if "402" in msg or "Insufficient Balance" in msg:
+            return "오류: DeepSeek 잔액이 부족합니다. 충전 후 다시 시도해주세요."
+        if "401" in msg or "Authentication" in msg:
+            return "오류: DeepSeek 키가 유효하지 않습니다."
+        if "429" in msg:
+            return "오류: 요청이 몰렸습니다. 잠시 후 다시 시도해주세요."
+        return f"오류: {msg[:250]}"
