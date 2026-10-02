@@ -59,10 +59,13 @@ if not (vision_ready and deepseek_ready):
     st.error("서버에 API 키가 없습니다: " + ", ".join(missing)
              + "\n\n(Streamlit → Settings → Secrets 에 추가해주세요)")
 
-tab_photo, tab_my = st.tabs(["📸 사진으로 학습", "👤 로그인 / 내 기록"])
+tab_photo, tab_my = st.tabs(["📸 사진으로 학습", "👤 로그인 · 기록 (선택)"])
 
 # ══════════════════════ 탭 1 · 사진으로 학습 (로그인 불필요) ══════════════════════
 with tab_photo:
+    st.info("🔓 **로그인 없이 바로 사용할 수 있습니다.**\n\n"
+            "로그인은 만든 학습자료를 **저장·불러오기**할 때만 필요합니다.")
+
     uploaded = st.file_uploader(
         "책 페이지 사진을 선택하세요 (카메라로 찍거나 갤러리에서 고르기)",
         type=["jpg", "jpeg", "png", "webp", "JPG", "JPEG", "PNG"],
@@ -170,9 +173,12 @@ with tab_my:
                 except Exception as e:
                     st.error(f"기록을 불러오지 못했습니다: {str(e)[:150]}")
     else:
-        st.subheader("로그인")
-        st.caption("학습 기록을 저장·불러오려면 로그인하세요. "
-                   "**사진으로 학습은 로그인 없이도 됩니다.**")
+        st.subheader("👤 로그인 · 회원가입")
+        st.info("이 화면은 **선택**입니다.\n\n"
+                "· 📸 **사진으로 학습** — 로그인 없이 바로 사용\n"
+                "· 👤 **로그인** — 만든 자료를 저장하고 나중에 다시 보기")
+
+        st.caption("기록 저장이 필요 없으면 이 탭을 쓰지 않아도 됩니다.")
 
         with st.form("auth", clear_on_submit=False):
             email = st.text_input("이메일", placeholder="you@example.com")
